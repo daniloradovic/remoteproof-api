@@ -8,12 +8,17 @@ use App\Http\Controllers\Controller;
 use App\Services\ClassificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use RuntimeException;
 
 class ClassifyController extends Controller
 {
+    private const CACHE_TTL_HOURS = 24;
+
+    private const CACHE_KEY_PREFIX = 'classification:url:';
+
     public function __construct(private readonly ClassificationService $classifier) {}
 
     public function classify(Request $request): JsonResponse
@@ -35,6 +40,22 @@ class ClassifyController extends Controller
         }
 
         $validated = $validator->validated();
+        $url = $validated['url'] ?? null;
+        $cacheKey = $url !== null ? self::CACHE_KEY_PREFIX.sha1($url) : null;
+
+        if ($cacheKey !== null) {
+            $cached = Cache::get($cacheKey);
+
+            if (is_array($cached)) {
+                return response()->json([
+                    'verdict' => $cached['verdict'],
+                    'confidence' => $cached['confidence'],
+                    'reason' => $cached['reason'],
+                    'signals' => $cached['signals'],
+                    'cached' => true,
+                ]);
+            }
+        }
 
         try {
             $result = $this->classifier->classify($validated['text']);
@@ -46,6 +67,10 @@ class ClassifyController extends Controller
             return response()->json([
                 'error' => 'Failed to classify the job description.',
             ], 502);
+        }
+
+        if ($cacheKey !== null) {
+            Cache::put($cacheKey, $result, now()->addHours(self::CACHE_TTL_HOURS));
         }
 
         return response()->json([
