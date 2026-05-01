@@ -253,7 +253,7 @@ This allows 60 requests per minute per IP. Fine for now.
 - [ ] TASK 3 — ClassificationService working in tinker
 - [ ] TASK 4 — `/api/classify` endpoint responding correctly
 - [ ] TASK 5 — Caching working, `cached: true` on repeat requests
-- [ ] TASK 6 — CORS configured, no browser errors
+- [x] TASK 6 — CORS configured, no browser errors
 - [ ] TASK 7 — 9/10 prompt accuracy on real listings
 - [ ] TASK 8 — Rate limiting in place
 
