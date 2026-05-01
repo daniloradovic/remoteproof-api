@@ -6,6 +6,7 @@ use App\Services\ClassificationService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 
 beforeEach(function () {
     config()->set('services.anthropic.key', 'test-key');
@@ -14,6 +15,7 @@ beforeEach(function () {
     config()->set('services.anthropic.max_tokens', 1024);
 
     Cache::flush();
+    RateLimiter::clear('api');
 });
 
 function fakeAnthropicHttpResponse(array $payload): array
@@ -342,4 +344,51 @@ it('does not cache when the classification service throws', function () {
     ])->assertStatus(502);
 
     expect(Cache::has('classification:url:'.sha1($url)))->toBeFalse();
+});
+
+it('rate limits requests beyond 60 per minute per ip', function () {
+    $this->mock(ClassificationService::class, function ($mock) {
+        $mock->shouldReceive('classify')
+            ->andReturn([
+                'verdict' => 'WORLDWIDE',
+                'confidence' => 'HIGH',
+                'reason' => 'Truly remote.',
+                'signals' => ['work from anywhere'],
+            ]);
+    });
+
+    $payload = ['text' => longJobDescription()];
+
+    for ($i = 0; $i < 60; $i++) {
+        $this->postJson('/api/classify', $payload)->assertOk();
+    }
+
+    $response = $this->postJson('/api/classify', $payload);
+
+    $response
+        ->assertStatus(429)
+        ->assertHeader('X-RateLimit-Limit', '60')
+        ->assertHeader('X-RateLimit-Remaining', '0');
+});
+
+it('exposes rate limit headers on successful responses', function () {
+    $this->mock(ClassificationService::class, function ($mock) {
+        $mock->shouldReceive('classify')
+            ->once()
+            ->andReturn([
+                'verdict' => 'WORLDWIDE',
+                'confidence' => 'HIGH',
+                'reason' => 'Truly remote.',
+                'signals' => ['work from anywhere'],
+            ]);
+    });
+
+    $response = $this->postJson('/api/classify', [
+        'text' => longJobDescription(),
+    ]);
+
+    $response
+        ->assertOk()
+        ->assertHeader('X-RateLimit-Limit', '60')
+        ->assertHeader('X-RateLimit-Remaining', '59');
 });

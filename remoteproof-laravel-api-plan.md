@@ -255,7 +255,7 @@ This allows 60 requests per minute per IP. Fine for now.
 - [ ] TASK 5 — Caching working, `cached: true` on repeat requests
 - [x] TASK 6 — CORS configured, no browser errors
 - [x] TASK 7 — 9/10 prompt accuracy on real listings (benchmark scored 10/10)
-- [ ] TASK 8 — Rate limiting in place
+- [x] TASK 8 — Rate limiting in place (60 requests per minute per IP)
 
 ---
 
