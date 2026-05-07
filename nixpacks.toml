@@ -5,3 +5,22 @@
 [variables]
 NIXPACKS_PHP_EXTENSIONS = "intl,zip"
 NIXPACKS_NODE_VERSION = "22"
+
+# Explicitly wire up the build phases so Nixpacks runs the Vite asset pipeline.
+# Without this, Nixpacks detects PHP and installs Composer deps but never runs
+# `npm run build`, so public/build/manifest.json is never created and the
+# @vite Blade directive throws a ManifestNotFoundException at runtime.
+[phases.setup]
+nixPkgs = ["nodejs_22"]
+
+[phases.install]
+cmds = [
+    "composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist",
+    "npm ci --ignore-scripts",
+]
+
+[phases.build]
+cmds = [
+    "npm run build",
+    "php artisan optimize",
+]

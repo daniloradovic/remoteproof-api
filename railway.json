@@ -4,7 +4,7 @@
         "builder": "NIXPACKS"
     },
     "deploy": {
-        "preDeployCommand": "php artisan migrate --force && php artisan config:cache && php artisan route:cache && php artisan view:cache",
+        "preDeployCommand": "php artisan migrate --force && php artisan config:clear && php artisan config:cache && php artisan route:cache",
         "healthcheckPath": "/api/health",
         "healthcheckTimeout": 30,
         "restartPolicyType": "ON_FAILURE",
