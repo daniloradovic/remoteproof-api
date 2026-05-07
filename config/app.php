@@ -69,6 +69,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Admin Email Allowlist
+    |--------------------------------------------------------------------------
+    |
+    | Comma-separated list of emails that gate access to /pulse and the
+    | Filament admin panel. Empty means no one is allowed in (fail-closed).
+    |
+    */
+
+    'admin_emails' => array_values(array_filter(
+        array_map('trim', explode(',', (string) env('ADMIN_EMAILS', ''))),
+        static fn (string $email): bool => $email !== '',
+    )),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |
