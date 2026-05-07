@@ -4,3 +4,4 @@
 
 [variables]
 NIXPACKS_PHP_EXTENSIONS = "intl,zip"
+NIXPACKS_NODE_VERSION = "20"
