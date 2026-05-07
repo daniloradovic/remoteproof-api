@@ -11,7 +11,9 @@ NIXPACKS_NODE_VERSION = "22"
 # `npm run build`, so public/build/manifest.json is never created and the
 # @vite Blade directive throws a ManifestNotFoundException at runtime.
 [phases.setup]
-nixPkgs = ["nodejs_22"]
+# "..." preserves the PHP / Composer packages Nixpacks auto-detects from composer.json.
+# Without it, this list REPLACES the defaults and `composer` is no longer installed.
+nixPkgs = ["...", "nodejs_22"]
 
 [phases.install]
 cmds = [
