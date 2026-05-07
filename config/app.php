@@ -56,6 +56,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Application Version
+    |--------------------------------------------------------------------------
+    |
+    | Set during deploy (e.g. APP_VERSION=$(git rev-parse --short HEAD)) and
+    | surfaced via /api/health so the uptime monitor can confirm which build
+    | is live. Falls back to "unknown" in environments where it isn't set.
+    |
+    */
+
+    'version' => env('APP_VERSION', 'unknown'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |
