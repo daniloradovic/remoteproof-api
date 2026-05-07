@@ -1,0 +1,6 @@
+# Nixpacks build config for Railway.
+# intl + zip are required transitively by Filament (filament/support, openspout).
+# Add more extensions here if Filament features that need them get used (e.g. gd for image uploads).
+
+[variables]
+NIXPACKS_PHP_EXTENSIONS = "intl,zip"
