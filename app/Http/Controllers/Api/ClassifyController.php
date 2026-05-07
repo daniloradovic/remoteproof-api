@@ -19,6 +19,8 @@ class ClassifyController extends Controller
 
     private const CACHE_KEY_PREFIX = 'classification:url:';
 
+    private const DAILY_SPEND_PREFIX = 'anthropic:spend:';
+
     public function __construct(private readonly ClassificationService $classifier) {}
 
     public function classify(Request $request): JsonResponse
@@ -57,6 +59,15 @@ class ClassifyController extends Controller
             }
         }
 
+        $dailyKey = self::DAILY_SPEND_PREFIX.now()->format('Y-m-d');
+        $dailyCap = (int) config('services.anthropic.daily_cap', 5000);
+
+        if ((int) Cache::get($dailyKey, 0) >= $dailyCap) {
+            return response()->json([
+                'error' => 'Daily classification cap reached. Try again tomorrow.',
+            ], 429);
+        }
+
         try {
             $result = $this->classifier->classify($validated['text']);
         } catch (RuntimeException $e) {
@@ -68,6 +79,9 @@ class ClassifyController extends Controller
                 'error' => 'Failed to classify the job description.',
             ], 502);
         }
+
+        Cache::add($dailyKey, 0, now()->endOfDay());
+        Cache::increment($dailyKey);
 
         if ($cacheKey !== null) {
             Cache::put($cacheKey, $result, now()->addHours(self::CACHE_TTL_HOURS));

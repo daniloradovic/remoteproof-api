@@ -40,6 +40,7 @@ return [
         'url' => env('ANTHROPIC_API_URL'),
         'model' => env('ANTHROPIC_MODEL'),
         'max_tokens' => env('MAX_TOKENS', 1024),
+        'daily_cap' => (int) env('ANTHROPIC_DAILY_CAP', 5000),
     ],
 
 ];

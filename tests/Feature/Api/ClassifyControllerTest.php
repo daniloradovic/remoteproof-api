@@ -371,6 +371,105 @@ it('rate limits requests beyond 60 per minute per ip', function () {
         ->assertHeader('X-RateLimit-Remaining', '0');
 });
 
+it('returns 429 when the daily anthropic cap is reached', function () {
+    config()->set('services.anthropic.daily_cap', 3);
+
+    Cache::put('anthropic:spend:'.now()->format('Y-m-d'), 3, now()->endOfDay());
+
+    $mock = $this->mock(ClassificationService::class);
+    $mock->shouldNotReceive('classify');
+
+    $response = $this->postJson('/api/classify', [
+        'text' => longJobDescription(),
+    ]);
+
+    $response
+        ->assertStatus(429)
+        ->assertExactJson([
+            'error' => 'Daily classification cap reached. Try again tomorrow.',
+        ]);
+});
+
+it('increments the daily counter on a live classification', function () {
+    config()->set('services.anthropic.daily_cap', 100);
+
+    $this->mock(ClassificationService::class, function ($mock) {
+        $mock->shouldReceive('classify')
+            ->twice()
+            ->andReturn([
+                'verdict' => 'WORLDWIDE',
+                'confidence' => 'HIGH',
+                'reason' => 'Truly remote.',
+                'signals' => [],
+            ]);
+    });
+
+    $this->postJson('/api/classify', ['text' => longJobDescription()])->assertOk();
+    $this->postJson('/api/classify', ['text' => longJobDescription()])->assertOk();
+
+    expect((int) Cache::get('anthropic:spend:'.now()->format('Y-m-d')))->toBe(2);
+});
+
+it('does not increment the counter on a cache hit', function () {
+    config()->set('services.anthropic.daily_cap', 100);
+
+    $url = 'https://example.com/jobs/cached';
+
+    Cache::put('classification:url:'.sha1($url), [
+        'verdict' => 'RESTRICTED',
+        'confidence' => 'HIGH',
+        'reason' => 'US only.',
+        'signals' => [],
+    ], now()->addHours(24));
+
+    $mock = $this->mock(ClassificationService::class);
+    $mock->shouldNotReceive('classify');
+
+    $this->postJson('/api/classify', [
+        'text' => longJobDescription(),
+        'url' => $url,
+    ])->assertOk()->assertJsonPath('cached', true);
+
+    expect(Cache::has('anthropic:spend:'.now()->format('Y-m-d')))->toBeFalse();
+});
+
+it('still serves cache hits when the daily cap is reached', function () {
+    config()->set('services.anthropic.daily_cap', 1);
+
+    $url = 'https://example.com/jobs/cached';
+
+    Cache::put('classification:url:'.sha1($url), [
+        'verdict' => 'WORLDWIDE',
+        'confidence' => 'HIGH',
+        'reason' => 'Truly remote.',
+        'signals' => [],
+    ], now()->addHours(24));
+    Cache::put('anthropic:spend:'.now()->format('Y-m-d'), 999, now()->endOfDay());
+
+    $mock = $this->mock(ClassificationService::class);
+    $mock->shouldNotReceive('classify');
+
+    $this->postJson('/api/classify', [
+        'text' => longJobDescription(),
+        'url' => $url,
+    ])->assertOk()->assertJsonPath('cached', true);
+});
+
+it('does not increment the counter when classification fails', function () {
+    config()->set('services.anthropic.daily_cap', 100);
+    Log::spy();
+
+    $this->mock(ClassificationService::class, function ($mock) {
+        $mock->shouldReceive('classify')
+            ->once()
+            ->andThrow(new RuntimeException('boom'));
+    });
+
+    $this->postJson('/api/classify', ['text' => longJobDescription()])->assertStatus(502);
+
+    expect(Cache::has('anthropic:spend:'.now()->format('Y-m-d')))->toBeFalse();
+});
+
 it('exposes rate limit headers on successful responses', function () {
     $this->mock(ClassificationService::class, function ($mock) {
         $mock->shouldReceive('classify')
