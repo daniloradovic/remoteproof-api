@@ -1,58 +1,172 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# RemoteProof API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Backend service that classifies remote job postings as **WORLDWIDE**, **RESTRICTED**, or **UNCLEAR** by sending the description through Claude. Built to power the [RemoteProof Chrome extension](https://remoteproof.app), but the HTTP surface is small enough to drop into any client.
 
-## About Laravel
+## Why it exists
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+Remote job listings rarely state geographic restrictions clearly — the "must be authorized to work in the US" line is often buried in paragraph four. RemoteProof reads the listing and surfaces a verdict before you waste time applying.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Stack
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+| Layer | Choice |
+|---|---|
+| Framework | Laravel 11 |
+| Language | PHP 8.3 |
+| AI | Anthropic Claude (`claude-sonnet-4-*`) |
+| Database | SQLite (single-file, fits on a $14 droplet) |
+| Cache & queue | File driver (swap to Redis when traffic justifies it) |
+| Errors | Sentry |
+| Metrics | Laravel Pulse at `/pulse` |
+| Admin | Filament at `/admin` |
 
-## Learning Laravel
+## Architecture
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+```
+┌──────────────┐    POST /api/classify     ┌────────────────────┐
+│   Extension  │ ────────────────────────▶ │   RemoteProof API  │
+│  (Chrome)    │ ◀──────────────────────── │   (Laravel)        │
+└──────────────┘   { verdict, cached, … }  └─────────┬──────────┘
+                                                     │
+                                       cache hit?    │ no
+                                                     ▼
+                                          ┌──────────────────┐
+                                          │  Anthropic API   │
+                                          └──────────────────┘
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+events table  ◀─── auto-tracked: anon_id, host, verdict, cached, latency
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Cache hits never call Claude, never count against the daily budget, and are served instantly.
 
-## Contributing
+## API
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+### `POST /api/classify`
 
-## Code of Conduct
+Classify a single job description.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+**Headers**
+- `Content-Type: application/json`
+- `X-Anon-Id: <uuid>` — optional, for anonymous behavioural tracking. Truncated to 64 chars.
 
-## Security Vulnerabilities
+**Body**
+```json
+{
+  "text": "Full job description, minimum 100 characters.",
+  "url": "https://example.com/jobs/123"
+}
+```
+- `text` — required, string, ≥100 chars
+- `url` — optional. When present, the result is cached for 24 h keyed on the URL hash, and the hostname is stored for stats.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+**Response (200)**
+```json
+{
+  "verdict": "RESTRICTED",
+  "confidence": "HIGH",
+  "reason": "Requires US work authorization.",
+  "signals": ["must be authorized to work in the US"],
+  "cached": false
+}
+```
+
+**Other status codes**
+| Status | Meaning |
+|---|---|
+| `422` | Validation failed (`text` missing or too short, `url` malformed) |
+| `429` | Rate limit (60 req/min/IP) **or** daily Anthropic cap reached |
+| `502` | Anthropic call failed |
+
+### `GET /api/health`
+
+Used by uptime monitors. Not rate-limited, not tracked.
+
+```json
+{
+  "ok": true,
+  "version": "abc1234",
+  "time": "2026-05-07T12:34:56+00:00"
+}
+```
+
+## Local development
+
+Requires PHP 8.3+, Composer 2, and Node 20+ (for Vite). SQLite ships with PHP — no DB server needed.
+
+```bash
+git clone https://github.com/daniloradovic/remoteproof-api.git
+cd remoteproof-api
+
+composer install
+npm install
+
+cp .env.example .env
+php artisan key:generate
+touch database/database.sqlite
+php artisan migrate
+
+# Set at minimum:
+#   ANTHROPIC_API_KEY=sk-ant-…
+#   ANTHROPIC_API_URL=https://api.anthropic.com/v1/messages
+#   ANTHROPIC_MODEL=claude-sonnet-4-20250514
+#   EXTENSION_ORIGIN=chrome-extension://<your-unpacked-id>
+$EDITOR .env
+
+php artisan serve
+```
+
+Smoke test:
+```bash
+curl -X POST http://localhost:8000/api/classify \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Senior engineer role, fully remote. Must be authorized to work in the United States. Competitive salary and benefits package."}'
+```
+
+To use `/admin` and `/pulse`, create an admin user whose email is in `ADMIN_EMAILS`:
+```bash
+php artisan make:filament-user
+```
+
+## Tests
+
+```bash
+./vendor/bin/pest
+```
+
+The suite includes a benchmark of 10 real-world job listings (`tests/Feature/Services/ClassificationServiceTest.php`) that the prompt must score 9/10 on. Currently scoring 10/10.
+
+## Environment variables
+
+| Variable | Purpose | Example |
+|---|---|---|
+| `APP_VERSION` | Git short SHA, surfaced via `/api/health`. Set during deploy. | `abc1234` |
+| `ANTHROPIC_API_KEY` | Anthropic credential. | `sk-ant-…` |
+| `ANTHROPIC_API_URL` | API endpoint. | `https://api.anthropic.com/v1/messages` |
+| `ANTHROPIC_MODEL` | Model ID. | `claude-sonnet-4-20250514` |
+| `MAX_TOKENS` | Response token limit. | `1024` |
+| `ANTHROPIC_DAILY_CAP` | Live calls per UTC day before returning 429. Cache hits don't count. | `5000` |
+| `EXTENSION_ORIGIN` | Comma-separated CORS allowlist for the extension. Empty = closed. | `chrome-extension://abc123` |
+| `LANDING_ORIGIN` | Comma-separated CORS allowlist for the marketing site. | `https://remoteproof.app` |
+| `SENTRY_LARAVEL_DSN` | Empty disables Sentry. Release auto-tagged from `APP_VERSION`. | `https://…@sentry.io/0` |
+| `SENTRY_TRACES_SAMPLE_RATE` | Fraction of requests traced. | `0.1` |
+| `ADMIN_EMAILS` | Comma-separated allowlist for `/admin` and `/pulse`. Empty = no one. | `you@example.com` |
+
+## Privacy
+
+The API is designed to learn from usage without identifying users.
+
+**Stored** in the `events` table on every classify call:
+- `anon_id` — UUID generated by the extension and stored in `chrome.storage.local`
+- `host` — hostname only (e.g. `linkedin.com`), never the full URL
+- `verdict`, `cached`, `latency_ms`, `created_at`
+
+**Not stored, ever:**
+- Full URL or query string
+- Job description text
+- IP address
+- Anything tying `anon_id` to a person
+
+Cache keys (`classification:url:<sha1>`) hold the classification result for 24 h. The job text used to generate it is not retained.
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+MIT.
