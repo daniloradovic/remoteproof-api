@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Event;
 use App\Services\ClassificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use RuntimeException;
+use Throwable;
 
 class ClassifyController extends Controller
 {
@@ -25,6 +27,8 @@ class ClassifyController extends Controller
 
     public function classify(Request $request): JsonResponse
     {
+        $start = microtime(true);
+
         $validator = Validator::make($request->all(), [
             'text' => ['required', 'string', 'min:100'],
             'url' => ['nullable', 'url'],
@@ -44,11 +48,15 @@ class ClassifyController extends Controller
         $validated = $validator->validated();
         $url = $validated['url'] ?? null;
         $cacheKey = $url !== null ? self::CACHE_KEY_PREFIX.sha1($url) : null;
+        $host = $url !== null ? (parse_url($url, PHP_URL_HOST) ?: null) : null;
+        $anonId = substr((string) $request->header('X-Anon-Id', 'unknown'), 0, 64);
 
         if ($cacheKey !== null) {
             $cached = Cache::get($cacheKey);
 
             if (is_array($cached)) {
+                $this->recordClassification($anonId, $host, $cached['verdict'], true, $start);
+
                 return response()->json([
                     'verdict' => $cached['verdict'],
                     'confidence' => $cached['confidence'],
@@ -87,6 +95,8 @@ class ClassifyController extends Controller
             Cache::put($cacheKey, $result, now()->addHours(self::CACHE_TTL_HOURS));
         }
 
+        $this->recordClassification($anonId, $host, $result['verdict'], false, $start);
+
         return response()->json([
             'verdict' => $result['verdict'],
             'confidence' => $result['confidence'],
@@ -94,5 +104,24 @@ class ClassifyController extends Controller
             'signals' => $result['signals'],
             'cached' => false,
         ]);
+    }
+
+    private function recordClassification(string $anonId, ?string $host, string $verdict, bool $cached, float $start): void
+    {
+        try {
+            Event::create([
+                'anon_id' => $anonId,
+                'name' => 'classify.completed',
+                'host' => $host,
+                'verdict' => $verdict,
+                'cached' => $cached,
+                'latency_ms' => (int) ((microtime(true) - $start) * 1000),
+                'created_at' => now(),
+            ]);
+        } catch (Throwable $e) {
+            Log::warning('Failed to record classification event', [
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }

@@ -2,11 +2,16 @@
 
 declare(strict_types=1);
 
+use App\Models\Event;
 use App\Services\ClassificationService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Schema;
+
+uses(RefreshDatabase::class);
 
 beforeEach(function () {
     config()->set('services.anthropic.key', 'test-key');
@@ -468,6 +473,145 @@ it('does not increment the counter when classification fails', function () {
     $this->postJson('/api/classify', ['text' => longJobDescription()])->assertStatus(502);
 
     expect(Cache::has('anthropic:spend:'.now()->format('Y-m-d')))->toBeFalse();
+});
+
+it('records a classify.completed event for a live classification', function () {
+    Http::fake([
+        'https://api.anthropic.test/*' => Http::response(fakeAnthropicHttpResponse([
+            'verdict' => 'WORLDWIDE',
+            'confidence' => 'HIGH',
+            'reason' => 'Hiring globally.',
+            'signals' => ['work from anywhere'],
+        ])),
+    ]);
+
+    $this->withHeader('X-Anon-Id', 'browser-uuid-123')
+        ->postJson('/api/classify', [
+            'text' => longJobDescription(),
+            'url' => 'https://linkedin.com/jobs/view/42',
+        ])
+        ->assertOk();
+
+    $event = Event::firstOrFail();
+
+    expect($event->anon_id)->toBe('browser-uuid-123')
+        ->and($event->name)->toBe('classify.completed')
+        ->and($event->host)->toBe('linkedin.com')
+        ->and($event->verdict)->toBe('WORLDWIDE')
+        ->and($event->cached)->toBeFalse()
+        ->and($event->latency_ms)->toBeGreaterThanOrEqual(0);
+});
+
+it('records a classify.completed event with cached=true on cache hits', function () {
+    $url = 'https://example.com/jobs/cached';
+
+    Cache::put('classification:url:'.sha1($url), [
+        'verdict' => 'RESTRICTED',
+        'confidence' => 'HIGH',
+        'reason' => 'US only.',
+        'signals' => [],
+    ], now()->addHours(24));
+
+    $this->withHeader('X-Anon-Id', 'browser-uuid-456')
+        ->postJson('/api/classify', [
+            'text' => longJobDescription(),
+            'url' => $url,
+        ])
+        ->assertOk()
+        ->assertJsonPath('cached', true);
+
+    $event = Event::firstOrFail();
+
+    expect($event->anon_id)->toBe('browser-uuid-456')
+        ->and($event->host)->toBe('example.com')
+        ->and($event->verdict)->toBe('RESTRICTED')
+        ->and($event->cached)->toBeTrue();
+});
+
+it('falls back to "unknown" anon_id when X-Anon-Id header is missing', function () {
+    Http::fake([
+        'https://api.anthropic.test/*' => Http::response(fakeAnthropicHttpResponse([
+            'verdict' => 'UNCLEAR',
+            'confidence' => 'MEDIUM',
+            'reason' => 'No context.',
+            'signals' => [],
+        ])),
+    ]);
+
+    $this->postJson('/api/classify', ['text' => longJobDescription()])->assertOk();
+
+    expect(Event::firstOrFail()->anon_id)->toBe('unknown');
+});
+
+it('does not store the host when no url is provided', function () {
+    Http::fake([
+        'https://api.anthropic.test/*' => Http::response(fakeAnthropicHttpResponse([
+            'verdict' => 'WORLDWIDE',
+            'confidence' => 'HIGH',
+            'reason' => 'Truly remote.',
+            'signals' => [],
+        ])),
+    ]);
+
+    $this->postJson('/api/classify', ['text' => longJobDescription()])->assertOk();
+
+    expect(Event::firstOrFail()->host)->toBeNull();
+});
+
+it('does not record an event when validation fails', function () {
+    $this->postJson('/api/classify', ['text' => 'short'])->assertStatus(422);
+
+    expect(Event::count())->toBe(0);
+});
+
+it('does not record an event when classification throws', function () {
+    Log::spy();
+
+    $this->mock(ClassificationService::class, function ($mock) {
+        $mock->shouldReceive('classify')->once()->andThrow(new RuntimeException('boom'));
+    });
+
+    $this->postJson('/api/classify', ['text' => longJobDescription()])->assertStatus(502);
+
+    expect(Event::count())->toBe(0);
+});
+
+it('truncates oversized X-Anon-Id values to 64 characters', function () {
+    Http::fake([
+        'https://api.anthropic.test/*' => Http::response(fakeAnthropicHttpResponse([
+            'verdict' => 'WORLDWIDE',
+            'confidence' => 'HIGH',
+            'reason' => 'Truly remote.',
+            'signals' => [],
+        ])),
+    ]);
+
+    $this->withHeader('X-Anon-Id', str_repeat('a', 200))
+        ->postJson('/api/classify', ['text' => longJobDescription()])
+        ->assertOk();
+
+    expect(Event::firstOrFail()->anon_id)->toBe(str_repeat('a', 64));
+});
+
+it('still returns a successful response when event recording fails', function () {
+    Log::spy();
+
+    Http::fake([
+        'https://api.anthropic.test/*' => Http::response(fakeAnthropicHttpResponse([
+            'verdict' => 'WORLDWIDE',
+            'confidence' => 'HIGH',
+            'reason' => 'Truly remote.',
+            'signals' => [],
+        ])),
+    ]);
+
+    Schema::drop('events');
+
+    $this->postJson('/api/classify', ['text' => longJobDescription()])
+        ->assertOk()
+        ->assertJsonPath('verdict', 'WORLDWIDE');
+
+    Log::shouldHaveReceived('warning')->once();
 });
 
 it('exposes rate limit headers on successful responses', function () {
