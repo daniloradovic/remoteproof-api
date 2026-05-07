@@ -16,7 +16,10 @@ NIXPACKS_NODE_VERSION = "22"
 nixPkgs = ["...", "nodejs_22"]
 
 [phases.install]
+# Custom install phase replaces Nixpacks defaults — nginx log/cache dirs are
+# normally auto-created and nginx crashes at startup without them.
 cmds = [
+    "mkdir -p /var/log/nginx /var/cache/nginx",
     "composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist",
     "npm ci --ignore-scripts",
 ]
