@@ -18,7 +18,7 @@
             or <strong class="text-amber-700">Unclear</strong> — before you waste an application.
         </p>
         <div class="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-            <a href="#install" class="inline-flex items-center justify-center rounded-md bg-indigo-600 px-6 py-3 font-medium text-white shadow-sm transition hover:bg-indigo-500">
+            <a href="https://chromewebstore.google.com/detail/remoteproof/enjbdkijfnmdenkcjdleldcfgjfemflh" target="_blank" rel="noopener" class="inline-flex items-center justify-center rounded-md bg-indigo-600 px-6 py-3 font-medium text-white shadow-sm transition hover:bg-indigo-500">
                 Add to Chrome
             </a>
             <a href="#how" class="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-6 py-3 font-medium text-slate-700 transition hover:border-slate-400">
@@ -106,7 +106,7 @@
     <section id="install" class="mx-auto max-w-3xl px-6 pt-10 pb-20 text-center">
         <h2 class="text-3xl font-semibold tracking-tight">Stop applying to jobs you can't take.</h2>
         <p class="mx-auto mt-4 max-w-xl text-slate-600">Install RemoteProof and see the real geographic scope of every remote listing you read.</p>
-        <a href="#install" class="mt-8 inline-flex items-center justify-center rounded-md bg-indigo-600 px-6 py-3 font-medium text-white shadow-sm transition hover:bg-indigo-500">
+        <a href="https://chromewebstore.google.com/detail/remoteproof/enjbdkijfnmdenkcjdleldcfgjfemflh" target="_blank" rel="noopener" class="mt-8 inline-flex items-center justify-center rounded-md bg-indigo-600 px-6 py-3 font-medium text-white shadow-sm transition hover:bg-indigo-500">
             Add to Chrome
         </a>
     </section>
