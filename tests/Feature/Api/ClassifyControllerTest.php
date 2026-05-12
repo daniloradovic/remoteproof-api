@@ -19,6 +19,12 @@ beforeEach(function () {
     config()->set('services.anthropic.model', 'claude-sonnet-4-20250514');
     config()->set('services.anthropic.max_tokens', 1024);
 
+    // Default caps high enough that the unrelated tests don't trip them.
+    // Tests that exercise the caps override these explicitly.
+    config()->set('services.anthropic.daily_cap', 10_000);
+    config()->set('services.anthropic.monthly_cap', 100_000);
+    config()->set('services.anthropic.per_anon_monthly_cap', 10_000);
+
     Cache::flush();
     RateLimiter::clear('api');
 });
@@ -460,7 +466,87 @@ it('still serves cache hits when the daily cap is reached', function () {
     ])->assertOk()->assertJsonPath('cached', true);
 });
 
-it('does not increment the counter when classification fails', function () {
+it('returns 429 when the per-anon monthly cap is reached', function () {
+    config()->set('services.anthropic.per_anon_monthly_cap', 2);
+
+    $month = now()->format('Y-m');
+    Cache::put('anthropic:spend:anon:user-abc:'.$month, 2, now()->endOfMonth());
+
+    $mock = $this->mock(ClassificationService::class);
+    $mock->shouldNotReceive('classify');
+
+    $response = $this->withHeader('X-Anon-Id', 'user-abc')
+        ->postJson('/api/classify', ['text' => longJobDescription()]);
+
+    $response
+        ->assertStatus(429)
+        ->assertJsonPath('error', "You've reached your monthly classification limit. Quota resets at the start of next month.");
+});
+
+it('returns 429 when the global monthly cap is reached', function () {
+    config()->set('services.anthropic.monthly_cap', 5);
+
+    $month = now()->format('Y-m');
+    Cache::put('anthropic:spend:month:'.$month, 5, now()->endOfMonth());
+
+    $mock = $this->mock(ClassificationService::class);
+    $mock->shouldNotReceive('classify');
+
+    $response = $this->postJson('/api/classify', ['text' => longJobDescription()]);
+
+    $response
+        ->assertStatus(429)
+        ->assertJsonPath('error', 'Monthly service limit reached. Try again next month.');
+});
+
+it('increments per-anon, monthly, and daily counters together on a successful call', function () {
+    $this->mock(ClassificationService::class, function ($mock) {
+        $mock->shouldReceive('classify')->once()->andReturn([
+            'verdict' => 'WORLDWIDE',
+            'confidence' => 'HIGH',
+            'reason' => 'Truly remote.',
+            'signals' => [],
+        ]);
+    });
+
+    $this->withHeader('X-Anon-Id', 'user-xyz')
+        ->postJson('/api/classify', ['text' => longJobDescription()])
+        ->assertOk();
+
+    $month = now()->format('Y-m');
+    $today = now()->format('Y-m-d');
+
+    expect((int) Cache::get('anthropic:spend:anon:user-xyz:'.$month))->toBe(1)
+        ->and((int) Cache::get('anthropic:spend:month:'.$month))->toBe(1)
+        ->and((int) Cache::get('anthropic:spend:'.$today))->toBe(1);
+});
+
+it('keeps per-anon counters separate across different anon IDs', function () {
+    $this->mock(ClassificationService::class, function ($mock) {
+        $mock->shouldReceive('classify')->twice()->andReturn([
+            'verdict' => 'WORLDWIDE',
+            'confidence' => 'HIGH',
+            'reason' => 'Truly remote.',
+            'signals' => [],
+        ]);
+    });
+
+    $this->withHeader('X-Anon-Id', 'user-a')
+        ->postJson('/api/classify', ['text' => longJobDescription()])
+        ->assertOk();
+
+    $this->withHeader('X-Anon-Id', 'user-b')
+        ->postJson('/api/classify', ['text' => longJobDescription()])
+        ->assertOk();
+
+    $month = now()->format('Y-m');
+
+    expect((int) Cache::get('anthropic:spend:anon:user-a:'.$month))->toBe(1)
+        ->and((int) Cache::get('anthropic:spend:anon:user-b:'.$month))->toBe(1)
+        ->and((int) Cache::get('anthropic:spend:month:'.$month))->toBe(2);
+});
+
+it('does not increment any counter when classification fails', function () {
     config()->set('services.anthropic.daily_cap', 100);
     Log::spy();
 

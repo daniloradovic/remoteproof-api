@@ -23,6 +23,10 @@ class ClassifyController extends Controller
 
     private const DAILY_SPEND_PREFIX = 'anthropic:spend:';
 
+    private const MONTHLY_SPEND_PREFIX = 'anthropic:spend:month:';
+
+    private const ANON_MONTHLY_SPEND_PREFIX = 'anthropic:spend:anon:';
+
     public function __construct(private readonly ClassificationService $classifier) {}
 
     public function classify(Request $request): JsonResponse
@@ -67,10 +71,30 @@ class ClassifyController extends Controller
             }
         }
 
-        $dailyKey = self::DAILY_SPEND_PREFIX.now()->format('Y-m-d');
-        $dailyCap = (int) config('services.anthropic.daily_cap', 5000);
+        $month = now()->format('Y-m');
+        $today = now()->format('Y-m-d');
 
-        if ((int) Cache::get($dailyKey, 0) >= $dailyCap) {
+        $anonKey = self::ANON_MONTHLY_SPEND_PREFIX.$anonId.':'.$month;
+        $monthlyKey = self::MONTHLY_SPEND_PREFIX.$month;
+        $dailyKey = self::DAILY_SPEND_PREFIX.$today;
+
+        $anonCap = (int) config('services.anthropic.per_anon_monthly_cap', 50);
+        $monthlyCap = (int) config('services.anthropic.monthly_cap', 5000);
+        $dailyCap = (int) config('services.anthropic.daily_cap', 250);
+
+        if ($this->exceeded($anonKey, $anonCap)) {
+            return response()->json([
+                'error' => "You've reached your monthly classification limit. Quota resets at the start of next month.",
+            ], 429);
+        }
+
+        if ($this->exceeded($monthlyKey, $monthlyCap)) {
+            return response()->json([
+                'error' => 'Monthly service limit reached. Try again next month.',
+            ], 429);
+        }
+
+        if ($this->exceeded($dailyKey, $dailyCap)) {
             return response()->json([
                 'error' => 'Daily classification cap reached. Try again tomorrow.',
             ], 429);
@@ -88,8 +112,9 @@ class ClassifyController extends Controller
             ], 502);
         }
 
-        Cache::add($dailyKey, 0, now()->endOfDay());
-        Cache::increment($dailyKey);
+        $this->bump($anonKey, now()->endOfMonth());
+        $this->bump($monthlyKey, now()->endOfMonth());
+        $this->bump($dailyKey, now()->endOfDay());
 
         if ($cacheKey !== null) {
             Cache::put($cacheKey, $result, now()->addHours(self::CACHE_TTL_HOURS));
@@ -104,6 +129,17 @@ class ClassifyController extends Controller
             'signals' => $result['signals'],
             'cached' => false,
         ]);
+    }
+
+    private function exceeded(string $key, int $cap): bool
+    {
+        return (int) Cache::get($key, 0) >= $cap;
+    }
+
+    private function bump(string $key, \DateTimeInterface $expiresAt): void
+    {
+        Cache::add($key, 0, $expiresAt);
+        Cache::increment($key);
     }
 
     private function recordClassification(string $anonId, ?string $host, string $verdict, bool $cached, float $start): void
