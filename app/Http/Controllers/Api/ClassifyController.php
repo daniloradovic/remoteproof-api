@@ -83,18 +83,24 @@ class ClassifyController extends Controller
         $dailyCap = (int) config('services.anthropic.daily_cap', 250);
 
         if ($this->exceeded($anonKey, $anonCap)) {
+            Log::info('classify cap hit', ['which' => 'anon', 'anon_id' => $anonId, 'count' => (int) Cache::get($anonKey, 0), 'cap' => $anonCap]);
+
             return response()->json([
                 'error' => "You've reached your monthly classification limit. Quota resets at the start of next month.",
             ], 429);
         }
 
         if ($this->exceeded($monthlyKey, $monthlyCap)) {
+            Log::info('classify cap hit', ['which' => 'monthly', 'count' => (int) Cache::get($monthlyKey, 0), 'cap' => $monthlyCap]);
+
             return response()->json([
                 'error' => 'Monthly service limit reached. Try again next month.',
             ], 429);
         }
 
         if ($this->exceeded($dailyKey, $dailyCap)) {
+            Log::info('classify cap hit', ['which' => 'daily', 'count' => (int) Cache::get($dailyKey, 0), 'cap' => $dailyCap]);
+
             return response()->json([
                 'error' => 'Daily classification cap reached. Try again tomorrow.',
             ], 429);
