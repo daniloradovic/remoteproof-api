@@ -16,19 +16,16 @@ NIXPACKS_NODE_VERSION = "22"
 nixPkgs = ["...", "nodejs_22"]
 
 [phases.install]
-# "..." preserves Nixpacks' default install — including the PHP provider's
-# nginx vhost wiring (try_files $uri /index.php; fastcgi to php-fpm).
-# Without it, nginx falls back to a static-file vhost and every Laravel
-# route 404s. mkdir stays because nginx log/cache dirs aren't auto-created.
+# Custom install phase replaces Nixpacks defaults — nginx log/cache dirs are
+# normally auto-created and nginx crashes at startup without them.
 cmds = [
-    "...",
     "mkdir -p /var/log/nginx /var/cache/nginx",
+    "composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist",
     "npm ci --ignore-scripts",
 ]
 
 [phases.build]
 cmds = [
-    "...",
     "npm run build",
     "php artisan optimize",
 ]
