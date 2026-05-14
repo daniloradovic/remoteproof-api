@@ -13,6 +13,6 @@ Route::get('/health', function () {
     ]);
 });
 
-Route::middleware('throttle:classify')->group(function (): void {
+Route::middleware('throttle:60,1')->group(function (): void {
     Route::post('/classify', [ClassifyController::class, 'classify']);
 });
