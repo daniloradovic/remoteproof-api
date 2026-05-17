@@ -87,6 +87,11 @@ class ClassifyController extends Controller
 
             return response()->json([
                 'error' => "You've reached your monthly classification limit. Quota resets at the start of next month.",
+                'waitlist' => [
+                    'available' => true,
+                    'plan_interest' => 'pro',
+                    'source' => 'quota_429',
+                ],
             ], 429);
         }
 

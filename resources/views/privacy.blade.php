@@ -28,6 +28,9 @@
         <h2 class="mt-12 text-xl font-semibold text-slate-900">Caching</h2>
         <p class="mt-4 text-slate-700">When a URL is classified, we store the resulting verdict for 24 hours keyed by a SHA-1 hash of the URL. The job text used to produce the verdict is not retained — only the four-field result.</p>
 
+        <h2 class="mt-12 text-xl font-semibold text-slate-900">Waitlist emails</h2>
+        <p class="mt-4 text-slate-700">If you join the Pro waitlist on this site, we store the email address you submitted, which plan you expressed interest in, and the page you signed up from. We use this only to email you when Pro becomes available and to gauge demand. You can ask us to delete your waitlist entry at any time by emailing <a class="text-indigo-600 underline hover:text-indigo-700" href="mailto:hello@remoteproof.app">hello@remoteproof.app</a>. Waitlist data is kept separate from the anonymous classification events above.</p>
+
         <h2 class="mt-12 text-xl font-semibold text-slate-900">Third parties</h2>
         <p class="mt-4 text-slate-700">Job description text is sent to <a class="text-indigo-600 underline hover:text-indigo-700" href="https://www.anthropic.com/">Anthropic</a> for classification, governed by their <a class="text-indigo-600 underline hover:text-indigo-700" href="https://www.anthropic.com/legal/privacy">privacy policy</a>. Errors are sent to Sentry without request bodies. Uptime pings hit a no-data health endpoint.</p>
 

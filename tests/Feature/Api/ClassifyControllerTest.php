@@ -480,7 +480,41 @@ it('returns 429 when the per-anon monthly cap is reached', function () {
 
     $response
         ->assertStatus(429)
-        ->assertJsonPath('error', "You've reached your monthly classification limit. Quota resets at the start of next month.");
+        ->assertJsonPath('error', "You've reached your monthly classification limit. Quota resets at the start of next month.")
+        ->assertJsonPath('waitlist.available', true)
+        ->assertJsonPath('waitlist.plan_interest', 'pro')
+        ->assertJsonPath('waitlist.source', 'quota_429');
+});
+
+it('omits the waitlist CTA from the daily cap 429', function () {
+    config()->set('services.anthropic.daily_cap', 1);
+
+    Cache::put('anthropic:spend:'.now()->format('Y-m-d'), 1, now()->endOfDay());
+
+    $mock = $this->mock(ClassificationService::class);
+    $mock->shouldNotReceive('classify');
+
+    $response = $this->postJson('/api/classify', ['text' => longJobDescription()]);
+
+    $response
+        ->assertStatus(429)
+        ->assertJsonMissingPath('waitlist');
+});
+
+it('omits the waitlist CTA from the global monthly cap 429', function () {
+    config()->set('services.anthropic.monthly_cap', 1);
+
+    $month = now()->format('Y-m');
+    Cache::put('anthropic:spend:month:'.$month, 1, now()->endOfMonth());
+
+    $mock = $this->mock(ClassificationService::class);
+    $mock->shouldNotReceive('classify');
+
+    $response = $this->postJson('/api/classify', ['text' => longJobDescription()]);
+
+    $response
+        ->assertStatus(429)
+        ->assertJsonMissingPath('waitlist');
 });
 
 it('returns 429 when the global monthly cap is reached', function () {

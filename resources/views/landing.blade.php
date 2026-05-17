@@ -103,6 +103,54 @@
         </div>
     </section>
 
+    <section id="pricing" class="mx-auto max-w-5xl px-6 py-20">
+        <h2 class="text-center text-3xl font-semibold tracking-tight">Pricing</h2>
+        <p class="mx-auto mt-3 max-w-2xl text-center text-slate-500">
+            RemoteProof is free while we're in beta. Paid plans are coming for power users.
+        </p>
+        <div class="mx-auto mt-12 grid max-w-3xl items-stretch gap-6 md:grid-cols-2">
+            <div class="grid grid-rows-[auto_1fr_auto] rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
+                <div>
+                    <h3 class="text-lg font-semibold text-slate-900">Free</h3>
+                    <p class="mt-1 text-sm text-slate-500">For casual job seekers.</p>
+                </div>
+                <ul class="mt-6 space-y-2 text-sm text-slate-700">
+                    <li>50 classifications per month</li>
+                    <li>No signup required</li>
+                    <li>24-hour result caching</li>
+                </ul>
+                <div class="mt-8 space-y-2">
+                    <div aria-hidden="true" class="invisible block w-full rounded-md border border-slate-300 px-3 py-2 text-sm">&nbsp;</div>
+                    <a href="https://chromewebstore.google.com/detail/remoteproof/enjbdkijfnmdenkcjdleldcfgjfemflh" target="_blank" rel="noopener" class="inline-flex w-full items-center justify-center rounded-md bg-indigo-600 px-6 py-2.5 font-medium text-white shadow-sm transition hover:bg-indigo-500">
+                        Add to Chrome
+                    </a>
+                </div>
+            </div>
+            <div class="grid grid-rows-[auto_1fr_auto] rounded-xl border border-indigo-200 bg-indigo-50/40 p-6 shadow-sm">
+                <div>
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-lg font-semibold text-slate-900">Pro</h3>
+                        <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700">Coming soon</span>
+                    </div>
+                    <p class="mt-1 text-sm text-slate-500">For people applying daily.</p>
+                </div>
+                <ul class="mt-6 space-y-2 text-sm text-slate-700">
+                    <li>2,000 classifications per month</li>
+                    <li>Priority processing</li>
+                    <li>Early access to new features</li>
+                </ul>
+                <form id="waitlist-form" class="mt-8 space-y-2" novalidate>
+                    <label for="waitlist-email" class="sr-only">Email address</label>
+                    <input id="waitlist-email" name="email" type="email" required autocomplete="email" placeholder="you@example.com" class="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                    <button type="submit" id="waitlist-submit" class="inline-flex w-full items-center justify-center rounded-md bg-indigo-600 px-6 py-2.5 font-medium text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">
+                        Join the waitlist
+                    </button>
+                    <p id="waitlist-message" class="hidden text-sm" role="status" aria-live="polite"></p>
+                </form>
+            </div>
+        </div>
+    </section>
+
     <section id="install" class="mx-auto max-w-3xl px-6 pt-10 pb-20 text-center">
         <h2 class="text-3xl font-semibold tracking-tight">Stop applying to jobs you can't take.</h2>
         <p class="mx-auto mt-4 max-w-xl text-slate-600">Install RemoteProof and see the real geographic scope of every remote listing you read.</p>
@@ -110,4 +158,79 @@
             Add to Chrome
         </a>
     </section>
+
+    <script>
+        (function () {
+            const form = document.getElementById('waitlist-form');
+            if (!form) return;
+            const emailInput = document.getElementById('waitlist-email');
+            const submitBtn = document.getElementById('waitlist-submit');
+            const message = document.getElementById('waitlist-message');
+
+            function showMessage(text, kind) {
+                message.textContent = text;
+                message.className = 'text-sm ' + (kind === 'success'
+                    ? 'text-emerald-700'
+                    : 'text-rose-700');
+            }
+
+            form.addEventListener('submit', async function (event) {
+                event.preventDefault();
+                const email = (emailInput.value || '').trim();
+                if (!email) {
+                    showMessage('Please enter your email address.', 'error');
+                    return;
+                }
+
+                submitBtn.disabled = true;
+                const originalLabel = submitBtn.textContent;
+                submitBtn.textContent = 'Joining…';
+                message.className = 'hidden';
+
+                try {
+                    const headers = {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                    };
+                    try {
+                        const anonId = window.localStorage.getItem('remoteproof.anonId');
+                        if (anonId) headers['X-Anon-Id'] = anonId;
+                    } catch (_) { /* localStorage may be blocked */ }
+
+                    const response = await fetch('/api/waitlist', {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify({
+                            email: email,
+                            plan_interest: 'pro',
+                            source: 'landing_pricing',
+                        }),
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json().catch(() => ({}));
+                        form.reset();
+                        showMessage(
+                            data.already_signed_up
+                                ? "You're already on the list — we'll be in touch."
+                                : "You're on the list. We'll email when Pro is ready.",
+                            'success'
+                        );
+                    } else if (response.status === 422) {
+                        const data = await response.json().catch(() => ({}));
+                        showMessage(data.error || 'Please check your email address.', 'error');
+                    } else if (response.status === 429) {
+                        showMessage('Too many attempts. Please try again in a minute.', 'error');
+                    } else {
+                        showMessage('Something went wrong. Please try again.', 'error');
+                    }
+                } catch (_) {
+                    showMessage('Network error. Please try again.', 'error');
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = originalLabel;
+                }
+            });
+        })();
+    </script>
 @endsection
