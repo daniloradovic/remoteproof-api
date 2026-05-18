@@ -21,7 +21,19 @@ class ClassificationService
     /**
      * Classify a job description by calling the Anthropic API.
      *
-     * @return array{verdict: string, confidence: string, reason: string, signals: array<int, string>}
+     * @return array{
+     *     verdict: string,
+     *     confidence: string,
+     *     reason: string,
+     *     signals: array<int, string>,
+     *     usage: array{
+     *         model: string|null,
+     *         input_tokens: int|null,
+     *         output_tokens: int|null,
+     *         cache_read_input_tokens: int|null,
+     *         cache_creation_input_tokens: int|null,
+     *     }
+     * }
      *
      * @throws RuntimeException when the API call fails or the response cannot be parsed.
      */
@@ -86,7 +98,45 @@ class ClassificationService
         $payload = $response->json();
         $rawText = $this->extractText($payload);
 
-        return $this->parseClassification($rawText);
+        $classification = $this->parseClassification($rawText);
+        $classification['usage'] = $this->extractUsage($payload);
+
+        return $classification;
+    }
+
+    /**
+     * Pull the usage block + model from the Anthropic payload. Every field is
+     * nullable so a malformed or partial response doesn't break classification.
+     *
+     * @return array{
+     *     model: string|null,
+     *     input_tokens: int|null,
+     *     output_tokens: int|null,
+     *     cache_read_input_tokens: int|null,
+     *     cache_creation_input_tokens: int|null,
+     * }
+     */
+    private function extractUsage(mixed $payload): array
+    {
+        $usage = is_array($payload) && isset($payload['usage']) && is_array($payload['usage'])
+            ? $payload['usage']
+            : [];
+
+        $intOrNull = static fn (mixed $value): ?int => is_int($value) || (is_string($value) && ctype_digit($value))
+            ? (int) $value
+            : null;
+
+        $model = is_array($payload) && isset($payload['model']) && is_string($payload['model'])
+            ? $payload['model']
+            : null;
+
+        return [
+            'model' => $model,
+            'input_tokens' => $intOrNull($usage['input_tokens'] ?? null),
+            'output_tokens' => $intOrNull($usage['output_tokens'] ?? null),
+            'cache_read_input_tokens' => $intOrNull($usage['cache_read_input_tokens'] ?? null),
+            'cache_creation_input_tokens' => $intOrNull($usage['cache_creation_input_tokens'] ?? null),
+        ];
     }
 
     /**

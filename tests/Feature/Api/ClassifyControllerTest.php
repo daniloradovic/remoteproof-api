@@ -648,6 +648,96 @@ it('records a classify.completed event with cached=true on cache hits', function
         ->and($event->cached)->toBeTrue();
 });
 
+it('captures token usage and model from the Anthropic response', function () {
+    Http::fake([
+        'https://api.anthropic.test/*' => Http::response([
+            'id' => 'msg_test',
+            'type' => 'message',
+            'role' => 'assistant',
+            'model' => 'claude-sonnet-4-20250514',
+            'content' => [
+                ['type' => 'text', 'text' => json_encode([
+                    'verdict' => 'WORLDWIDE',
+                    'confidence' => 'HIGH',
+                    'reason' => 'Hiring globally.',
+                    'signals' => [],
+                ], JSON_THROW_ON_ERROR)],
+            ],
+            'stop_reason' => 'end_turn',
+            'usage' => [
+                'input_tokens' => 412,
+                'output_tokens' => 87,
+                'cache_read_input_tokens' => 0,
+                'cache_creation_input_tokens' => 0,
+            ],
+        ]),
+    ]);
+
+    $this->postJson('/api/classify', ['text' => longJobDescription()])->assertOk();
+
+    $event = Event::firstOrFail();
+
+    expect($event->model)->toBe('claude-sonnet-4-20250514')
+        ->and($event->input_tokens)->toBe(412)
+        ->and($event->output_tokens)->toBe(87)
+        ->and($event->cache_read_input_tokens)->toBe(0)
+        ->and($event->cache_creation_input_tokens)->toBe(0);
+});
+
+it('records null usage when the Anthropic payload lacks a usage block', function () {
+    Http::fake([
+        'https://api.anthropic.test/*' => Http::response([
+            'id' => 'msg_test',
+            'type' => 'message',
+            'role' => 'assistant',
+            'model' => 'claude-sonnet-4-20250514',
+            'content' => [
+                ['type' => 'text', 'text' => json_encode([
+                    'verdict' => 'WORLDWIDE',
+                    'confidence' => 'HIGH',
+                    'reason' => 'Hiring globally.',
+                    'signals' => [],
+                ], JSON_THROW_ON_ERROR)],
+            ],
+        ]),
+    ]);
+
+    $this->postJson('/api/classify', ['text' => longJobDescription()])->assertOk();
+
+    $event = Event::firstOrFail();
+
+    expect($event->model)->toBe('claude-sonnet-4-20250514')
+        ->and($event->input_tokens)->toBeNull()
+        ->and($event->output_tokens)->toBeNull()
+        ->and($event->cache_read_input_tokens)->toBeNull()
+        ->and($event->cache_creation_input_tokens)->toBeNull();
+});
+
+it('stores null usage on cache hits', function () {
+    $url = 'https://example.com/jobs/cached-tokens';
+
+    Cache::put('classification:url:'.sha1($url), [
+        'verdict' => 'RESTRICTED',
+        'confidence' => 'HIGH',
+        'reason' => 'US only.',
+        'signals' => [],
+    ], now()->addHours(24));
+
+    $this->postJson('/api/classify', [
+        'text' => longJobDescription(),
+        'url' => $url,
+    ])->assertOk()->assertJsonPath('cached', true);
+
+    $event = Event::firstOrFail();
+
+    expect($event->cached)->toBeTrue()
+        ->and($event->model)->toBeNull()
+        ->and($event->input_tokens)->toBeNull()
+        ->and($event->output_tokens)->toBeNull()
+        ->and($event->cache_read_input_tokens)->toBeNull()
+        ->and($event->cache_creation_input_tokens)->toBeNull();
+});
+
 it('falls back to "unknown" anon_id when X-Anon-Id header is missing', function () {
     Http::fake([
         'https://api.anthropic.test/*' => Http::response(fakeAnthropicHttpResponse([

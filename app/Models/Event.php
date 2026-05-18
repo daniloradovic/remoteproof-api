@@ -15,6 +15,11 @@ class Event extends Model
         'name',
         'host',
         'verdict',
+        'model',
+        'input_tokens',
+        'output_tokens',
+        'cache_read_input_tokens',
+        'cache_creation_input_tokens',
         'cached',
         'latency_ms',
         'properties',
@@ -24,6 +29,10 @@ class Event extends Model
     protected $casts = [
         'cached' => 'boolean',
         'latency_ms' => 'integer',
+        'input_tokens' => 'integer',
+        'output_tokens' => 'integer',
+        'cache_read_input_tokens' => 'integer',
+        'cache_creation_input_tokens' => 'integer',
         'properties' => 'array',
         'created_at' => 'datetime',
     ];

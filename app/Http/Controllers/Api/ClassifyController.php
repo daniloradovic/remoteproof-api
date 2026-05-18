@@ -59,7 +59,7 @@ class ClassifyController extends Controller
             $cached = Cache::get($cacheKey);
 
             if (is_array($cached)) {
-                $this->recordClassification($anonId, $host, $cached['verdict'], true, $start);
+                $this->recordClassification($anonId, $host, $cached['verdict'], true, $start, null);
 
                 return response()->json([
                     'verdict' => $cached['verdict'],
@@ -131,7 +131,7 @@ class ClassifyController extends Controller
             Cache::put($cacheKey, $result, now()->addHours(self::CACHE_TTL_HOURS));
         }
 
-        $this->recordClassification($anonId, $host, $result['verdict'], false, $start);
+        $this->recordClassification($anonId, $host, $result['verdict'], false, $start, $result['usage'] ?? null);
 
         return response()->json([
             'verdict' => $result['verdict'],
@@ -153,14 +153,21 @@ class ClassifyController extends Controller
         Cache::increment($key);
     }
 
-    private function recordClassification(string $anonId, ?string $host, string $verdict, bool $cached, float $start): void
+    private function recordClassification(string $anonId, ?string $host, string $verdict, bool $cached, float $start, ?array $usage): void
     {
+        $usage ??= [];
+
         try {
             Event::create([
                 'anon_id' => $anonId,
                 'name' => 'classify.completed',
                 'host' => $host,
                 'verdict' => $verdict,
+                'model' => $usage['model'] ?? null,
+                'input_tokens' => $usage['input_tokens'] ?? null,
+                'output_tokens' => $usage['output_tokens'] ?? null,
+                'cache_read_input_tokens' => $usage['cache_read_input_tokens'] ?? null,
+                'cache_creation_input_tokens' => $usage['cache_creation_input_tokens'] ?? null,
                 'cached' => $cached,
                 'latency_ms' => (int) ((microtime(true) - $start) * 1000),
                 'created_at' => now(),
