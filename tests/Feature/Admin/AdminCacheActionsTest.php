@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Filament\Pages\AnonUsage;
 use App\Filament\Resources\Events\Pages\ListEvents;
 use App\Http\Controllers\Api\ClassifyController;
 use App\Models\Event;
@@ -19,7 +20,7 @@ beforeEach(function () {
     $this->actingAs(User::factory()->create(['email' => 'admin@remoteproof.app']));
 });
 
-it('row action clears the per-anon monthly counter for current month', function () {
+it('AnonUsage row action clears the per-anon monthly counter for current month', function () {
     $anonId = 'anon-xyz';
     $month = now()->format('Y-m');
     $key = ClassifyController::ANON_MONTHLY_SPEND_PREFIX.$anonId.':'.$month;
@@ -35,8 +36,8 @@ it('row action clears the per-anon monthly counter for current month', function 
         'created_at' => now(),
     ]);
 
-    Livewire::test(ListEvents::class)
-        ->callTableAction('resetAnonUsage', $event)
+    Livewire::test(AnonUsage::class)
+        ->callTableAction('resetAnonUsage', $event->id)
         ->assertHasNoErrors();
 
     expect(Cache::has($key))->toBeFalse();
