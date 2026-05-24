@@ -34,7 +34,7 @@ class ClassifyController extends Controller
         $start = microtime(true);
 
         $validator = Validator::make($request->all(), [
-            'text' => ['required', 'string', 'min:100'],
+            'text' => ['required', 'string', 'min:100', 'max:65536'],
             'url' => ['nullable', 'url'],
         ], [
             'text.required' => 'The text field is required and must be at least 100 characters.',
