@@ -42,6 +42,7 @@ class AnonUsage extends Page implements HasTable
         return $table
             ->query($this->getTableQuery())
             ->defaultSort('last_seen', 'desc')
+            ->defaultKeySort(false)
             ->columns([
                 TextColumn::make('anon_id')
                     ->label('Anon')
