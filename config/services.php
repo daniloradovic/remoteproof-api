@@ -43,6 +43,7 @@ return [
         'daily_cap' => (int) env('ANTHROPIC_DAILY_CAP', 250),
         'monthly_cap' => (int) env('ANTHROPIC_MONTHLY_CAP', 5000),
         'per_anon_monthly_cap' => (int) env('PER_ANON_MONTHLY_CAP', 50),
+        'per_ip_daily_cap' => (int) env('PER_IP_DAILY_CAP', 50),
     ],
 
 ];

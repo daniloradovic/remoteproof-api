@@ -27,6 +27,8 @@ class ClassifyController extends Controller
 
     public const ANON_MONTHLY_SPEND_PREFIX = 'anthropic:spend:anon:';
 
+    public const IP_DAILY_SPEND_PREFIX = 'anthropic:spend:ip:';
+
     public function __construct(private readonly ClassificationService $classifier) {}
 
     public function classify(Request $request): JsonResponse
@@ -34,12 +36,13 @@ class ClassifyController extends Controller
         $start = microtime(true);
 
         $validator = Validator::make($request->all(), [
-            'text' => ['required', 'string', 'min:100', 'max:65536'],
+            'text' => ['required', 'string', 'min:100', 'max:16384'],
             'url' => ['nullable', 'url'],
         ], [
             'text.required' => 'The text field is required and must be at least 100 characters.',
             'text.string' => 'The text field is required and must be at least 100 characters.',
             'text.min' => 'The text field is required and must be at least 100 characters.',
+            'text.max' => 'The text field must not exceed 16384 characters.',
             'url.url' => 'The url field must be a valid URL.',
         ]);
 
@@ -74,13 +77,17 @@ class ClassifyController extends Controller
         $month = now()->format('Y-m');
         $today = now()->format('Y-m-d');
 
+        $ip = $request->ip() ?? 'no-ip';
+
         $anonKey = self::ANON_MONTHLY_SPEND_PREFIX.$anonId.':'.$month;
         $monthlyKey = self::MONTHLY_SPEND_PREFIX.$month;
         $dailyKey = self::DAILY_SPEND_PREFIX.$today;
+        $ipDailyKey = self::IP_DAILY_SPEND_PREFIX.$ip.':'.$today;
 
         $anonCap = (int) config('services.anthropic.per_anon_monthly_cap', 50);
         $monthlyCap = (int) config('services.anthropic.monthly_cap', 5000);
         $dailyCap = (int) config('services.anthropic.daily_cap', 250);
+        $ipDailyCap = (int) config('services.anthropic.per_ip_daily_cap', 50);
 
         if ($this->exceeded($anonKey, $anonCap)) {
             Log::info('classify cap hit', ['which' => 'anon', 'anon_id' => $anonId, 'count' => (int) Cache::get($anonKey, 0), 'cap' => $anonCap]);
@@ -92,6 +99,14 @@ class ClassifyController extends Controller
                     'plan_interest' => 'pro',
                     'source' => 'quota_429',
                 ],
+            ], 429);
+        }
+
+        if ($this->exceeded($ipDailyKey, $ipDailyCap)) {
+            Log::info('classify cap hit', ['which' => 'ip_daily', 'ip' => $ip, 'count' => (int) Cache::get($ipDailyKey, 0), 'cap' => $ipDailyCap]);
+
+            return response()->json([
+                'error' => 'Daily classification cap reached for your network. Try again tomorrow.',
             ], 429);
         }
 
@@ -126,6 +141,7 @@ class ClassifyController extends Controller
         $this->bump($anonKey, now()->endOfMonth());
         $this->bump($monthlyKey, now()->endOfMonth());
         $this->bump($dailyKey, now()->endOfDay());
+        $this->bump($ipDailyKey, now()->endOfDay());
 
         if ($cacheKey !== null) {
             Cache::put($cacheKey, $result, now()->addHours(self::CACHE_TTL_HOURS));

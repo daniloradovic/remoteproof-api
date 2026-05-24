@@ -8,7 +8,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
 
 uses(RefreshDatabase::class);
@@ -24,9 +23,9 @@ beforeEach(function () {
     config()->set('services.anthropic.daily_cap', 10_000);
     config()->set('services.anthropic.monthly_cap', 100_000);
     config()->set('services.anthropic.per_anon_monthly_cap', 10_000);
+    config()->set('services.anthropic.per_ip_daily_cap', 10_000);
 
     Cache::flush();
-    RateLimiter::clear('api');
 });
 
 function fakeAnthropicHttpResponse(array $payload): array
@@ -357,7 +356,7 @@ it('does not cache when the classification service throws', function () {
     expect(Cache::has('classification:url:'.sha1($url)))->toBeFalse();
 });
 
-it('rate limits requests beyond 60 per minute per ip', function () {
+it('rate limits requests beyond 10 per minute per ip', function () {
     $this->mock(ClassificationService::class, function ($mock) {
         $mock->shouldReceive('classify')
             ->andReturn([
@@ -370,7 +369,7 @@ it('rate limits requests beyond 60 per minute per ip', function () {
 
     $payload = ['text' => longJobDescription()];
 
-    for ($i = 0; $i < 60; $i++) {
+    for ($i = 0; $i < 10; $i++) {
         $this->postJson('/api/classify', $payload)->assertOk();
     }
 
@@ -378,8 +377,34 @@ it('rate limits requests beyond 60 per minute per ip', function () {
 
     $response
         ->assertStatus(429)
-        ->assertHeader('X-RateLimit-Limit', '60')
+        ->assertHeader('X-RateLimit-Limit', '10')
         ->assertHeader('X-RateLimit-Remaining', '0');
+});
+
+it('rate limits per anon-id, so rotating IPs does not unlock more throughput', function () {
+    $this->mock(ClassificationService::class, function ($mock) {
+        $mock->shouldReceive('classify')
+            ->andReturn([
+                'verdict' => 'WORLDWIDE',
+                'confidence' => 'HIGH',
+                'reason' => 'Truly remote.',
+                'signals' => [],
+            ]);
+    });
+
+    $payload = ['text' => longJobDescription()];
+
+    for ($i = 0; $i < 10; $i++) {
+        $this->withHeader('X-Anon-Id', 'shared-anon')
+            ->withServerVariables(['REMOTE_ADDR' => '10.0.0.'.$i])
+            ->postJson('/api/classify', $payload)
+            ->assertOk();
+    }
+
+    $this->withHeader('X-Anon-Id', 'shared-anon')
+        ->withServerVariables(['REMOTE_ADDR' => '10.0.0.99'])
+        ->postJson('/api/classify', $payload)
+        ->assertStatus(429);
 });
 
 it('returns 429 when the daily anthropic cap is reached', function () {
@@ -399,6 +424,44 @@ it('returns 429 when the daily anthropic cap is reached', function () {
         ->assertExactJson([
             'error' => 'Daily classification cap reached. Try again tomorrow.',
         ]);
+});
+
+it('returns 429 when the per-IP daily cap is reached', function () {
+    config()->set('services.anthropic.per_ip_daily_cap', 2);
+
+    Cache::put('anthropic:spend:ip:127.0.0.1:'.now()->format('Y-m-d'), 2, now()->endOfDay());
+
+    $mock = $this->mock(ClassificationService::class);
+    $mock->shouldNotReceive('classify');
+
+    $response = $this->postJson('/api/classify', [
+        'text' => longJobDescription(),
+    ]);
+
+    $response
+        ->assertStatus(429)
+        ->assertExactJson([
+            'error' => 'Daily classification cap reached for your network. Try again tomorrow.',
+        ]);
+});
+
+it('keeps per-IP daily counters separate across different IPs', function () {
+    config()->set('services.anthropic.per_ip_daily_cap', 1);
+
+    Cache::put('anthropic:spend:ip:10.0.0.1:'.now()->format('Y-m-d'), 1, now()->endOfDay());
+
+    $this->mock(ClassificationService::class, function ($mock) {
+        $mock->shouldReceive('classify')->once()->andReturn([
+            'verdict' => 'WORLDWIDE',
+            'confidence' => 'HIGH',
+            'reason' => 'Truly remote.',
+            'signals' => [],
+        ]);
+    });
+
+    $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.2'])
+        ->postJson('/api/classify', ['text' => longJobDescription()])
+        ->assertOk();
 });
 
 it('increments the daily counter on a live classification', function () {
@@ -552,7 +615,8 @@ it('increments per-anon, monthly, and daily counters together on a successful ca
 
     expect((int) Cache::get('anthropic:spend:anon:user-xyz:'.$month))->toBe(1)
         ->and((int) Cache::get('anthropic:spend:month:'.$month))->toBe(1)
-        ->and((int) Cache::get('anthropic:spend:'.$today))->toBe(1);
+        ->and((int) Cache::get('anthropic:spend:'.$today))->toBe(1)
+        ->and((int) Cache::get('anthropic:spend:ip:127.0.0.1:'.$today))->toBe(1);
 });
 
 it('keeps per-anon counters separate across different anon IDs', function () {
@@ -842,6 +906,6 @@ it('exposes rate limit headers on successful responses', function () {
 
     $response
         ->assertOk()
-        ->assertHeader('X-RateLimit-Limit', '60')
-        ->assertHeader('X-RateLimit-Remaining', '59');
+        ->assertHeader('X-RateLimit-Limit', '10')
+        ->assertHeader('X-RateLimit-Remaining', '9');
 });
