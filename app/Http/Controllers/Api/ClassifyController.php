@@ -19,13 +19,13 @@ class ClassifyController extends Controller
 {
     private const CACHE_TTL_HOURS = 24;
 
-    public const CACHE_KEY_PREFIX = 'classification:url:';
+    private const CACHE_KEY_PREFIX = 'classification:url:';
 
-    public const DAILY_SPEND_PREFIX = 'anthropic:spend:';
+    private const DAILY_SPEND_PREFIX = 'anthropic:spend:';
 
-    public const MONTHLY_SPEND_PREFIX = 'anthropic:spend:month:';
+    private const MONTHLY_SPEND_PREFIX = 'anthropic:spend:month:';
 
-    public const ANON_MONTHLY_SPEND_PREFIX = 'anthropic:spend:anon:';
+    private const ANON_MONTHLY_SPEND_PREFIX = 'anthropic:spend:anon:';
 
     public function __construct(private readonly ClassificationService $classifier) {}
 
@@ -34,7 +34,7 @@ class ClassifyController extends Controller
         $start = microtime(true);
 
         $validator = Validator::make($request->all(), [
-            'text' => ['required', 'string', 'min:100', 'max:65536'],
+            'text' => ['required', 'string', 'min:100'],
             'url' => ['nullable', 'url'],
         ], [
             'text.required' => 'The text field is required and must be at least 100 characters.',
