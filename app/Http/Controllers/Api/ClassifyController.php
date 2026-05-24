@@ -19,13 +19,13 @@ class ClassifyController extends Controller
 {
     private const CACHE_TTL_HOURS = 24;
 
-    private const CACHE_KEY_PREFIX = 'classification:url:';
+    public const CACHE_KEY_PREFIX = 'classification:url:';
 
-    private const DAILY_SPEND_PREFIX = 'anthropic:spend:';
+    public const DAILY_SPEND_PREFIX = 'anthropic:spend:';
 
-    private const MONTHLY_SPEND_PREFIX = 'anthropic:spend:month:';
+    public const MONTHLY_SPEND_PREFIX = 'anthropic:spend:month:';
 
-    private const ANON_MONTHLY_SPEND_PREFIX = 'anthropic:spend:anon:';
+    public const ANON_MONTHLY_SPEND_PREFIX = 'anthropic:spend:anon:';
 
     public function __construct(private readonly ClassificationService $classifier) {}
 
