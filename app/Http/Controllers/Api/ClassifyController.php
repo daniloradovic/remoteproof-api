@@ -29,6 +29,8 @@ class ClassifyController extends Controller
 
     public const IP_DAILY_SPEND_PREFIX = 'anthropic:spend:ip:';
 
+    public const ALERT_PREFIX = 'classify:alerted:';
+
     public function __construct(private readonly ClassificationService $classifier) {}
 
     public function classify(Request $request): JsonResponse
@@ -91,6 +93,11 @@ class ClassifyController extends Controller
 
         if ($this->exceeded($anonKey, $anonCap)) {
             Log::info('classify cap hit', ['which' => 'anon', 'anon_id' => $anonId, 'count' => (int) Cache::get($anonKey, 0), 'cap' => $anonCap]);
+            $this->alertCapTrip(
+                self::ALERT_PREFIX.'anon:'.$anonId.':'.$month,
+                now()->endOfMonth(),
+                "Per-anon monthly cap ({$anonCap}) reached for `{$anonId}` in {$month}."
+            );
 
             return response()->json([
                 'error' => "You've reached your monthly classification limit. Quota resets at the start of next month.",
@@ -104,6 +111,11 @@ class ClassifyController extends Controller
 
         if ($this->exceeded($ipDailyKey, $ipDailyCap)) {
             Log::info('classify cap hit', ['which' => 'ip_daily', 'ip' => $ip, 'count' => (int) Cache::get($ipDailyKey, 0), 'cap' => $ipDailyCap]);
+            $this->alertCapTrip(
+                self::ALERT_PREFIX.'ip_daily:'.$ip.':'.$today,
+                now()->endOfDay(),
+                "Per-IP daily cap ({$ipDailyCap}) reached for `{$ip}` on {$today}."
+            );
 
             return response()->json([
                 'error' => 'Daily classification cap reached for your network. Try again tomorrow.',
@@ -112,6 +124,11 @@ class ClassifyController extends Controller
 
         if ($this->exceeded($monthlyKey, $monthlyCap)) {
             Log::info('classify cap hit', ['which' => 'monthly', 'count' => (int) Cache::get($monthlyKey, 0), 'cap' => $monthlyCap]);
+            $this->alertCapTrip(
+                self::ALERT_PREFIX.'monthly:'.$month,
+                now()->endOfMonth(),
+                "Global monthly cap ({$monthlyCap}) reached in {$month}. All users now seeing 429s until next month."
+            );
 
             return response()->json([
                 'error' => 'Monthly service limit reached. Try again next month.',
@@ -120,6 +137,11 @@ class ClassifyController extends Controller
 
         if ($this->exceeded($dailyKey, $dailyCap)) {
             Log::info('classify cap hit', ['which' => 'daily', 'count' => (int) Cache::get($dailyKey, 0), 'cap' => $dailyCap]);
+            $this->alertCapTrip(
+                self::ALERT_PREFIX.'daily:'.$today,
+                now()->endOfDay(),
+                "Global daily cap ({$dailyCap}) reached on {$today}. All users now seeing 429s until midnight."
+            );
 
             return response()->json([
                 'error' => 'Daily classification cap reached. Try again tomorrow.',
@@ -167,6 +189,19 @@ class ClassifyController extends Controller
     {
         Cache::add($key, 0, $expiresAt);
         Cache::increment($key);
+    }
+
+    private function alertCapTrip(string $alertKey, \DateTimeInterface $resetAt, string $message): void
+    {
+        if (! Cache::add($alertKey, true, $resetAt)) {
+            return;
+        }
+
+        try {
+            Log::channel('cap_alerts')->info($message);
+        } catch (Throwable $e) {
+            Log::warning('Failed to send cap-trip Slack alert', ['error' => $e->getMessage()]);
+        }
     }
 
     private function recordClassification(string $anonId, ?string $host, string $verdict, bool $cached, float $start, ?array $usage): void

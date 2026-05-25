@@ -82,6 +82,15 @@ return [
             'replace_placeholders' => true,
         ],
 
+        'cap_alerts' => [
+            'driver' => 'slack',
+            'url' => env('CAP_ALERTS_SLACK_WEBHOOK_URL'),
+            'username' => env('APP_NAME', 'remoteproof'),
+            'emoji' => ':rotating_light:',
+            'level' => 'info',
+            'replace_placeholders' => true,
+        ],
+
         'papertrail' => [
             'driver' => 'monolog',
             'level' => env('LOG_LEVEL', 'debug'),

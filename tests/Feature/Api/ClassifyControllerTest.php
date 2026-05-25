@@ -445,6 +445,45 @@ it('returns 429 when the per-IP daily cap is reached', function () {
         ]);
 });
 
+it('marks each cap type as alerted on first trip and stays silent on subsequent trips in the same window', function () {
+    config()->set('services.anthropic.daily_cap', 1);
+
+    $today = now()->format('Y-m-d');
+    Cache::put('anthropic:spend:'.$today, 1, now()->endOfDay());
+
+    $mock = $this->mock(ClassificationService::class);
+    $mock->shouldNotReceive('classify');
+
+    expect(Cache::has('classify:alerted:daily:'.$today))->toBeFalse();
+
+    $this->postJson('/api/classify', ['text' => longJobDescription()])->assertStatus(429);
+
+    expect(Cache::get('classify:alerted:daily:'.$today))->toBeTrue();
+
+    // Second trip in the same window: marker stays as-is (Cache::add is a no-op),
+    // so the Slack send is skipped. Re-asserting the marker is the observable proof.
+    $this->postJson('/api/classify', ['text' => longJobDescription()])->assertStatus(429);
+
+    expect(Cache::get('classify:alerted:daily:'.$today))->toBeTrue();
+});
+
+it('uses a per-IP alert marker so each abusive IP pings exactly once per day', function () {
+    config()->set('services.anthropic.per_ip_daily_cap', 1);
+
+    $today = now()->format('Y-m-d');
+    Cache::put('anthropic:spend:ip:10.0.0.5:'.$today, 1, now()->endOfDay());
+
+    $mock = $this->mock(ClassificationService::class);
+    $mock->shouldNotReceive('classify');
+
+    $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.5'])
+        ->postJson('/api/classify', ['text' => longJobDescription()])
+        ->assertStatus(429);
+
+    expect(Cache::get('classify:alerted:ip_daily:10.0.0.5:'.$today))->toBeTrue()
+        ->and(Cache::has('classify:alerted:ip_daily:10.0.0.6:'.$today))->toBeFalse();
+});
+
 it('keeps per-IP daily counters separate across different IPs', function () {
     config()->set('services.anthropic.per_ip_daily_cap', 1);
 
